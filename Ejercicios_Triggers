@@ -1,0 +1,691 @@
+-- 
+-- Ejercicio 1
+-- Haz un trigger que solo permita a los vendedores tener comisiones.
+
+create or replace trigger SoloVendedores
+before insert or update on emp
+for each row
+begin
+	if :new.job!= 'SALESMAN' and :new.comm is not null then
+		raise_application_error(-20001,'Solo los vendedores pueden tener comisiones');
+	end if;
+end SoloVendedores;
+
+--
+-- Ejercicio 2
+-- Registrar todas las operaciones sobre la tabla EMP de SCOTT en una tabla llamada AUDIT_EMP
+-- donde se guarde usuario, fecha y tipo de operación.
+
+create table audit_emp
+(
+	usuario		varchar2(20),
+	fecha		date,
+	tipo		varchar2(20)
+);
+
+create or replace trigger AuditoriaEmp
+after insert or update or delete on emp
+declare
+	v_operacion VARCHAR2(6);
+begin
+	if inserting then
+		v_operacion:='INSERT'
+	end if;
+	if updating then
+		v_operacion:='UPDATE'
+	end if;
+	if deleting then
+		v_operacion:='DELETE'
+	end if;
+	insert into audit_emp
+	values(user, sysdate, v_operacion);
+end AuditoriaEmp;
+
+--
+-- Ejercicio 3
+-- Haz un trigger que controle si los sueldos están en los siguientes rangos:
+-- CLERK: 800 – 1100
+-- ANALYST: 1200 – 1600
+-- MANAGER:1800 – 2000
+
+
+create or replace trigger ControlRangoSueldos
+before insert or update on emp
+for each row
+begin
+	case :new.job
+		when 'CLERK' then
+			if :new.sal<800 or :new.sal>1100 then
+				raise_application_error(-20001,'Un conserje no puede tener ese sueldo');
+			end if;
+		when 'ANALYST' then
+			if :new.sal<1200 or :new.sal>1600 then
+				raise_application_error(-20002,'Un analista no puede tener ese sueldo');
+			end if;
+		when 'MANAGER' then
+			if :new.sal<1800 or :new.sal>2000 then
+				raise_application_error(-20003,'Un manager no puede tener ese sueldo');
+			end if;
+	end case;
+end ControlRangoSueldos;
+
+	-- Si no tiene empleados a su cargo = si su codigo no aparece en ninguna fila como mgr
+	-- (tendría que consultar emp -> error de tabla mutante)
+
+Versión completa:
+
+create or replace package Ej3 as
+
+TYPE TJefes IS TABLE OF NUMBER
+INDEX BY binary_integer;
+
+vTablaJefes TJefes;
+
+
+end;
+
+create or replace trigger AveriguarJefes
+before insert or update on emp
+declare
+	cursor c_jefes is
+	select distinct mgr
+	from emp;
+begin
+	for v_jefes in c_jefes loop
+		Ej3.vTablaJefes(v_jefes.mgr):=1;
+	end loop;
+end AveriguarJefes;
+
+create or replace trigger ControlRangoSueldos
+before insert or update on emp
+for each row
+begin
+	if Ej3.vTablaJefes.EXISTS(:new.empno) then
+		dbms_output.put_line(:new.empno||' tiene empleados a su cargo.');
+	else
+		ControlarSueldo(:new.job, :new.sal);
+	end if;
+end;
+
+--
+
+create or replace trigger AveriguarJefes2
+before insert or update on emp
+declare
+	cursor c_jefes is
+	select distinct mgr
+	from emp;
+
+	i number:=0;
+begin
+	for v_jefes in c_jefes loop
+		Ej3.vTablaJefes(i):=v_jefes.mgr;
+		i:=i+1;
+	end loop;
+end AveriguarJefes;
+
+
+
+
+create or replace trigger ControlRangoSueldos2
+before insert or update on emp
+for each row
+begin
+	if EsJefe(:new.empno) then
+		dbms_output.put_line(:new.empno||' tiene empleados a su cargo.');
+	else
+		ControlarSueldo(:new.job, :new.sal);
+	end if;
+end;
+
+create or replace function EsJefe(p_empno emp.empno%type)
+return number
+is
+	encontrado number:=0;
+begin
+	for i in Ej3.vTablaJefes.FIRST..Ej3.vTablaJefes.LAST LOOP
+		if Ej3.vTablaJefes(i)=p_empno then
+			encontrado:=1;
+		end if;
+	end loop;
+	return encontrado;
+end;
+
+is
+	i number;
+	encontrado number:=0;
+begin
+	
+	i := Ej3.vTablaJefes.FIRST;
+	while encontrado=0 and i < Ej3.vTablaJefes.LAST loop
+		if Ej3.vTablaJefes(i)=p_empno then
+			encontrado:=1;
+		end if;
+		i:= Ej3.vTablaJefes.NEXT;
+	end loop;
+	return encontrado;
+end;
+
+
+create or replace procedure ControlarSueldo (p_job emp.job%type, p_sal emp.sal%type)
+is
+begin
+	case p_job
+		when 'CLERK' then
+			if p_sal<800 or p_sal>1100 then
+				raise_application_error(-20001,'Un conserje no puede ganar eso');
+			end if;
+		when 'ANALYST' then
+			if p_sal<1200 or p_sal>1600 then
+					raise_application_error(-20001,'Un analista no puede ganar eso');
+			end if;
+		when 'MANAGER' then
+			if p_sal<1800 or p_sal>2000 then
+				raise_application_error(-20001,'Un manager no puede ganar eso');
+			end if;
+	end case;
+end ControlarSueldo;
+
+--
+-- Ejercicio 4
+-- Haz un trigger que impida al usuario MANOLO que cambie el sueldo de los empleados que trabajan en DALLAS.
+
+create or replace trigger NolotoquesManolo
+before update of sal on emp
+for each row
+declare
+	v_loc dept.loc%type;
+begin
+	select loc into v_loc
+	from dept
+	where deptno=:old.deptno;
+
+	if v_loc = 'DALLAS' and user = 'MANOLO' then
+		raise_application_error(-20002, 'Manolo, estate quieto');
+	end if;
+	
+end NolotoquesManolo;	
+
+--
+-- Ejercicio 5
+-- Haz un trigger que le suba un 10% el sueldo a los empleados cuando cambia la localidad donde trabajan.
+
+create or replace trigger PlusDesplazamiento
+after update of deptno on emp
+for each row
+declare
+	v_locantigua dept.loc%type;
+	v_locnueva   dept.loc%type;
+begin
+	-- guardo la localidad de su antiguo departamento
+	select loc into v_locantigua
+	from dept
+	where deptno=:old.deptno;
+	-- guardo la localidad de su nuevo departamento
+	select loc into v_locnueva
+	from dept
+	where deptno=:new.deptno;
+	--si tiene que mudarse le subo el sueldo
+	if v_locantigua!=v_locnueva then 
+		update emp
+		set sal=sal*1,1
+		where empno=:new.empno;
+	end if;
+end PlusDesplazamiento;
+
+create or replace trigger PlusDesplazamiento2
+after update of loc on dept
+for each row
+begin
+	update emp
+	set sal=sal*1,1
+	where deptno=:old.deptno;	
+end PlusDesplazamiento2;	
+
+--
+-- Ejercicio 6
+-- Haz un trigger que impida que un departamento se quede sin empleados.
+
+create or replace package Ej6 as
+
+TYPE TNumEmp IS TABLE OF NUMBER  --crear tipo de datos
+INDEX BY BINARY_INTEGER;
+
+vTablaNumEmp TNumEmp;            -- declaro variable del tipo recien creado
+
+end;
+
+create or replace trigger RellenarNumEmp
+before update or delete on emp
+declare
+	cursor c_numemp is
+	select deptno, count(*) as n
+	from emp
+	group by deptno;
+begin
+	Ej6.vTablaNumEmp.DELETE;
+	for v_numemp in c_numemp loop
+		Ej6.vTablaNumEmp(v_numemp.deptno):=v_numemp.n;
+	end loop;
+end RellenarNumEmp;
+
+create or replace trigger Deptnovacio
+before update or delete on emp
+for each row
+declare
+
+begin
+	if Ej6.vTablaNumEmp(:old.deptno)=1 then
+		raise_application_error(-20001,'No borres al último empleado');
+	else
+		Ej6.vTablaNumEmp(:old.deptno):=Ej6.vTablaNumEmp(:old.deptno)-1;
+	end if;
+end;
+
+--
+-- Ejercicio 7
+-- Diseña un trigger que impida la introducción de registros en la tabla Alumnos si contienen algún carácter numérico 
+-- o algún carácter de puntuación en el campo Apenom.
+
+create or replace trigger NombreCorrecto
+before insert or update on alumnos
+for each row
+declare
+	v_msg varchar2(50);
+begin
+	for i in 1..length(:new.apenom) loop
+		if (ascii(substr(:new.apenom, i, 1)) between 45 and 59) then
+			v_msg:='No se admite el caracter '||substr(:new.apenom, i, 1) 						||'en el nombre del alumno';
+			raise_application_error(-20001,v_msg);
+		end if;
+	end loop;
+end;
+
+--
+-- Ejercicio 8
+-- Diseña los módulos necesarios para que un mismo alumno no pueda tener notas de asignaturas de cursos distintos. 
+-- Es decir, el alumno o es de primero o es de segundo. Si ya tiene notas de uno de los cursos, no puede tener notas del otro.
+-- Si has creado la columna Curso en la tabla Alumnos debes eliminarla. No está permitido su uso para resolver este problema.
+-- Debe funcionar sin dar problema de tablas mutantes en consultas de datos anexados y en consultas de modificación
+-- que afecten a múltiples registros.
+
+create or replace package Ej8
+as
+-- Creamos el tipo de datos registro para guardar dos columnas
+type tRegAlumno is RECORD
+(
+	dni 	alumnos.dni%type,
+	curso 	asignaturas.curso%type
+);
+-- Creamos el tipo de datos tabla de los registros anteriores
+type tTablaAlumnos is table of tRegAlumno
+index by binary_integer;
+-- Declaramos una variable del tipo recién creado
+v_TablaAlumnos tTablaAlumnos;
+
+end Ej8;
+
+create or replace trigger RellenarTabla
+before insert or update on notas
+declare
+	cursor c_alumnosconcurso
+	is
+	select dni, curso
+	from asignaturas a, alumnos al, notas n
+	where n.dni=al.dni and a.cod=n.cod
+	group by dni, curso;
+
+	i number:=0;
+begin
+	for v_cursor in c_alumnosconcurso loop
+		Ej8.v_TablaAlumnos(i).dni=v_cursor.dni;
+		Ej8.v_TablaAlumnos(i).curso=v_cursor.curso;
+		i:=i+1;
+	end loop;
+end RellenarTabla;
+
+create or replace trigger ComprobarCurso
+before insert or update on notas
+for each row
+declare
+	v_cursoasig asignaturas.curso%type;
+	v_cursoalum asignaturas.curso%type;
+begin
+	select curso into v_cursoasig
+	from asignaturas
+	where cod=:new.cod;
+	v_cursoalum:=DevolverCursoAlumno(:new.dni);
+	if v_cursoalum:=0 then
+		InsertarAlumno(:new.dni, v_cursoasig);
+	elsif v_cursoalum!=v_cursoasig then
+		raise_application_error(-20001,'El alumno es de otro curso');
+	end if;
+
+end ComprobarCurso;
+	
+create or replace function DevolverCursoAlumno(p_dni alumnos.dni%type)
+return number
+is
+	v_curso number:=0;
+begin
+	for i in Ej8.v_TablaAlumnos.FIRST..Ej8.v_TablaAlumnos.LAST LOOP
+		if Ej8.v_TablaAlumnos(i).dni = p_dni then
+			v_curso:=Ej8.v_TablaAlumnos(i).curso;
+		end if;
+	end loop;
+	return v_curso;
+end DevolverCursoAlumno;
+
+create or replace procedure InsertarAlumno(p_dni alumnos.dni%type,
+                                           p_curso asignaturas.curso%type)
+is
+	ultimoindice number;
+begin
+	ultimoindice:=Ej8.v_TablaAlumnos.LAST;
+	Ej8.v_TablaAlumnos(ultimoindice+1).dni:=p_dni;
+	Ej8.v_TablaAlumnos(ultimoindice+1).curso:=p_curso;
+end InsertarAlumno;
+
+Versión 2018:
+
+create or replace package MismoCurso
+as
+	TYPE tRegistro IS RECORD
+	(
+		DNI	alumnos.dni%type,
+		Curso	asignaturas.curso%type
+	);
+
+	TYPE tTablaRegistros IS TABLE OF tRegistro INDEX BY BINARY_INTEGER;
+
+	v_MiTabla tTablaRegistros;
+end;
+
+create or replace trigger PorSentencia
+before insert or update on notas
+declare
+	cursor c_cursos
+	is
+	select distinct dni, curso
+	from asignaturas a, notas n
+	where a.codigo = n.codigoasig;
+	
+	i NUMBER:=0; -- indice de la tabla
+begin
+	MismoCurso.v_MiTabla.DELETE;
+	
+	for v_cursos in c_cursos loop
+		MismoCurso.v_MiTabla(i).DNI:=v_cursos.dni;
+		MismoCurso.v_MiTabla(i).curso:=v_cursos.curso;
+		i:=i+1;
+	end loop;
+end;
+
+create or replace trigger PorFila
+before insert or update on notas
+for each row
+declare
+	v_cursoasig 	asignaturas.curso%type;
+	v_cursoalumno	asignaturas.curso%type;
+begin
+	select curso into v_cursoasig
+	from asignaturas
+	where codigo=:new.codasig;
+	
+	v_cursoalumno:=ObtenerCursoAlumno(:new.dni);
+	if v_cursoalumno=-1 then
+		IntroducirAlumnoNuevo(:new.dnialumno, v_cursoasig);
+	elsif v_cursoasig!=v_cursoalumno then
+		raise_application_error(-20001, 'Ya tiene notas de '||v_cursoalumno||' y la 																		 asignatura es de '||v_cursoasig);
+	end if;
+end;
+
+create or replace function ObtenerCursoAlumno(p_dni alumnos.dni%type)
+return NUMBER
+is
+	v_curso asignaturas.curso%type:=-1;
+	i NUMBER;
+	v_encontrado NUMBER:= 0;
+begin	
+	i:=MismoCurso.v_miTabla.FIRST;
+	while MismoCurso.v_MiTabla.EXISTS(i) AND v_encontrado=0 loop
+		if MismoCurso.v_MiTabla(i).dni=p_dni then
+			v_curso:=MismoCurso.v_MiTabla(i).curso;
+			v_encontrado:=1;
+		end if;
+		i:=MismoCurso.v_MiTabla.NEXT;
+	end loop;
+	return v_curso;
+end;
+
+create or replace procedure IntroducirAlumnoNuevo(p_dni alumnos.dni%type,
+																									p_curso NUMBER)
+is
+begin
+		MismoCurso.v_MiTabla(MismoCurso.v_MiTabla.LAST+1).dni:=p_dni;
+		MismoCurso.v_MiTabla(MismoCurso.v_MiTabla.LAST).curso:=p_curso;
+end;
+
+--
+-- Ejercicio 9
+--
+
+-- Diseña un trigger que cada vez que se produzca un cambio en la tabla notas,
+-- actualice una columna llamada nota media en la tabla alumnos pero solo en las
+-- filas de dicha tabla en las que la actualización sea necesaria.
+
+-- Pasos previos:
+
+	-- Añadimos columna NotaMedia a la tabla Alumnos
+
+	ALTER TABLE alumnos
+	ADD NotaMedia NUMBER(3,1);
+
+	-- Rellenamos dicha columna:
+
+	update alumnos a
+	set notamedia = (select sum(notas)/count(*)
+			 from notas
+			 where dnialumno = a.dni)
+	where a.dni in (select dnialumno from notas);
+
+	-- Con un procedimiento:
+		
+	create or replace procedure ActualizarNotaMedia
+	is
+		cursor c_notas
+		is
+		select dni, sum(nota)/count(*) as notamedia
+		from notas
+		group by dni;
+	begin
+		for v_notas in c_notas loop
+			update alumnos
+			set notamedia=v_notas.notamedia
+			where dni=v_notas.dni;
+		end loop;
+	end;
+
+create or replace package NotaMedia
+as
+	TYPE tRegistro IS RECORD
+	(
+		DNI		alumnos.dni%type,
+		NumNotas	NUMBER,
+		TotalPuntos	NUMBER
+	);
+
+	TYPE tTabla IS TABLE OF tRegistro INDEX BY BINARY_INTEGER;
+
+	v_Tabla tTabla;
+end;
+
+create or replace trigger PorSentencia
+before insert or update or delete on notas
+declare
+	cursor c_alumnos
+	is
+	select dni, count(*) as numnotas, sum(nota) as total
+	from notas
+	group by dni;
+
+	i number:=0;
+begin
+	for v_alumnos in c_alumnos loop
+		NotaMedia.v_Tabla(i).DNI:=v_alumnos.dni;
+		NotaMedia.v_Tabla(i).NumNotas:=v_alumnos.numnotas;
+		NotaMedia.v_Tabla(i).TotalPuntos:=v_alumnos.total;
+		i:=i+1;
+	end loop;
+end;
+
+create or replace trigger NotaMediaInsert
+before insert on notas
+for each row
+begin
+	TratarNotaAñadida(:new.dni,:new.nota);
+end;
+
+create or replace procedure ObtenerInfoAlumno (	p_dni 		alumnos.dni%type,
+						p_total		out number,
+						p_numnotas	out number)
+is
+	v_encontrado NUMBER:=0;
+begin
+	for i in NotaMedia.v_Tabla.FIRST..NotaMedia.v_Tabla.LAST loop
+		if NotaMedia.v_Tabla(i).DNI=p_dni then
+			p_total:=NotaMedia.v_Tabla(i).totalpuntos;
+			p_numnotas:=NotaMedia.v_Tabla(i).numnotas;
+			v_encontrado:=1;
+		end if;
+	end loop;
+	if v_encontrado = 0 then
+		p_total:=0;	
+		p_numnotas:=0;
+	end if;
+end;
+
+create or replace procedure InsertarAlumnoenTablaPL	(p_dni  alumnos.dni%type,
+							 p_nota NUMBER)
+is
+begin
+	NotaMedia.v_Tabla(LAST+1).DNI:=p_dni;
+	NotaMedia.v_Tabla(LAST).NumNotas:=1;
+	NotaMedia.v_Tabla(LAST).TotalPuntos:=p_nota;
+end;
+	
+create or replace procedure AñadirNotaAlumnoenTablaPL	(p_dni  alumnos.dni%type, p_nota NUMBER)
+is
+begin
+	for i in NotaMedia.v_Tabla.FIRST..NotaMedia.v_Tabla.LAST loop
+		if NotaMedia.v_Tabla(i).DNI=p_dni then
+			NotaMedia.v_Tabla(i).totalpuntos:=NotaMedia.v_Tabla(i).totalpuntos+p_nota;
+			NotaMedia.v_Tabla(i).numnotas:=NotaMedia.v_Tabla(i).numnotas+1;
+		end if;
+	end loop;
+end;
+
+create or replace trigger NotaMediaDelete
+before delete on notas
+for each row
+begin
+	TratarNotaEliminada(:old.dni, :old.nota);
+end;
+
+create or replace procedure EliminarAlumnoenTablaPL (p_dni alumnos.dni%type)
+is
+begin
+	for i in NotaMedia.v_Tabla.FIRST..NotaMedia.v_Tabla.LAST loop
+		if NotaMedia.v_Tabla(i).DNI=p_dni then
+			NotaMedia.v_tabla.DELETE(i);
+		end if;
+	end loop;
+end;
+
+
+create or replace procedure QuitarNotaAlumnoenTablaPL	(p_dni  alumnos.dni%type, p_nota NUMBER)
+is
+begin
+	for i in NotaMedia.v_Tabla.FIRST..NotaMedia.v_Tabla.LAST loop
+		if NotaMedia.v_Tabla(i).DNI=p_dni then
+			NotaMedia.v_Tabla(i).totalpuntos:=NotaMedia.v_Tabla(i).totalpuntos-p_nota;
+			NotaMedia.v_Tabla(i).numnotas:=NotaMedia.v_Tabla(i).numnotas-1;
+		end if;
+	end loop;
+end;
+
+create or replace trigger NotaMediaUpdateNota
+before update of nota on notas
+for each row
+declare
+	v_totalpuntos NUMBER;
+	v_numnotas		NUMBER;
+begin
+	ObtenerInfoAlumno(:old.dni, v_totalpuntos, v_numnotas);
+
+	update alumnos
+	set notamedia = (v_totalpuntos+:new.nota-:old.nota)/v_numnotas
+	where dni=:old.dni;
+
+	ActualizarTotalPuntosTablaPL(:old.dni, :new.nota-:old.nota);
+end;
+
+create or replace procedure ActualizarTotalPuntosTablaPL (p_dni   alumnos.dni%type, p_difer NUMBER)
+is
+begin
+	for i in NotaMedia.v_Tabla.FIRST..NotaMedia.v_Tabla.LAST loop
+		if NotaMedia.v_Tabla(i).DNI=p_dni then
+			NotaMedia.v_Tabla(i).totalpuntos:=NotaMedia.v_Tabla(i).totalpuntos+p_difer;
+		end if;
+	end loop;
+end;
+
+create or replace trigger NotaMediaUpdateDNI
+before update of dni on notas
+for each row
+begin
+	TratarNotaEliminada(:old.dni,:old.nota);
+	TratarNotaAñadida(:new.dni,:new.nota);
+end;
+
+create or replace procedure TratarNotaEliminada (p_dni alumnos.dni%type, p_nota notas.nota%type)
+is
+	v_totalpuntos NUMBER;
+	v_numnotas NUMBER;
+begin
+	ObtenerInfoAlumno(p_dni, v_totalpuntos, v_numnotas);
+	
+	if v_numnotas = 1 then
+		update alumnos
+		set notamedia = NULL
+		where dni = p_dni;
+	else
+		update alumnos
+		set notamedia= (v_totalpuntos - p_nota)/ (v_numnotas - 1)
+		where dni = p_dni;
+	end if;
+--Paso 5
+	if v_numnotas=1 then	-- el alumno no estaba en la tabla persistente
+		EliminarAlumnoenTablaPL(p_dni);
+	else
+		QuitarNotaAlumnoenTablaPL(p_dni, p_nota);	
+	end if;
+end;
+
+create or replace procedure TratarNotaAñadida ( p_dni alumnos.dni%type,	p_nota notas.nota%type)
+is
+	v_totalpuntos NUMBER;
+	v_numnotas NUMBER;
+begin
+	ObtenerInfoAlumno(p_dni, v_totalpuntos, v_numnotas);
+
+	update alumnos
+	set notamedia= (v_totalpuntos + p_nota)/ (v_numnotas + 1)
+	where dni = p_dni;
+--Paso 5
+	if v_numnotas=0 then	-- el alumno no estaba en la tabla persistente
+		InsertarAlumnoenTablaPL(p_dni, p_nota);
+	else
+		AñadirNotaAlumnoenTablaPL(p_dni, p_nota);	
+	end if;
+end;
